@@ -1,0 +1,19 @@
+{
+  "config": {
+      "abort": {
+          "already_configured": "Country is already configured"
+      },
+      "error": {
+          "cannot_connect": "Cannot connect to ENTSO-E Transparency API",
+          "unknown": "Unknown error. Sorry about that."
+      },
+      "step": {
+          "user": {
+              "data": {
+                  "region": "Country code (ISO 3166 2-letter)",
+                  "api_key": "ENTSO-E Transparency API key"
+              }
+          }
+      }
+ }
+}

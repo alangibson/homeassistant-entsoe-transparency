@@ -1,0 +1,16 @@
+{
+  "domain": "entsoe_transparency",
+  "name": "ENTSO-E Transparency",
+  "version": "0.0.1",
+  "documentation": "https://www.example.com",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": [
+    "pandas",
+    "entsoe-py",
+    "xmltodict",
+    "python-dateutil"
+  ],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}
