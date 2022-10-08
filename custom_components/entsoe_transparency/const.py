@@ -1,7 +1,5 @@
-"""Constants for the Sungrow Inverter integration"""
-
-from datetime import timedelta
+"""Constants for the ENTSO-E Transparency integration"""
 
 DOMAIN = 'entsoe_transparency'
 
-DEFAULT_NAME = "ENTSO-E Transparency"
+DEFAULT_NAME = "ENTSOE Transparency"

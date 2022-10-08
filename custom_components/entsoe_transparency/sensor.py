@@ -2,19 +2,16 @@
 ENTSO-E Transparency sensors
 """
 
-from collections.abc import Iterable
-from curses import meta
-from datetime import (datetime, timezone)
 import logging
-import sys
-from datetime import timedelta
+from datetime import timedelta, datetime, date
 from dataclasses import dataclass
 
 import dateutil
 from homeassistant.const import (
-    CONF_REGION, 
-    CONF_API_KEY, 
-    CONF_CURRENCY
+    CONF_REGION,
+    CONF_API_KEY,
+    CONF_CURRENCY,
+    EVENT_STATE_CHANGED
 )
 
 import pandas as pd
@@ -39,10 +36,6 @@ from homeassistant.const import (
 from homeassistant.components.sensor import (
     SensorStateClass,
     SensorEntityDescription
-)
-from homeassistant.components.recorder.models import (
-    StatisticData,
-    StatisticMetaData,
 )
 
 from entsoe import EntsoeRawClient
@@ -86,7 +79,6 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ):
-
     currency = config_entry.data[CONF_CURRENCY]
     country_code = config_entry.data[CONF_REGION]
     api_key = config_entry.data[CONF_API_KEY]
@@ -110,8 +102,8 @@ async def async_setup_entry(
 
 @dataclass
 class EntsoeTransparencySensorEntityDescription(SensorEntityDescription):
-        country_code: str = None
-        api_key: str = None
+    country_code: str = None
+    api_key: str = None
 
 
 class EntsoeTransparencyDayAheadEntity(SensorEntity):
@@ -120,56 +112,24 @@ class EntsoeTransparencyDayAheadEntity(SensorEntity):
 
     def __init__(self, description: EntsoeTransparencySensorEntityDescription):
         self.entity_description = description
-        # TODO add country code to unique id
-        self._attr_unique_id = 'entsoe_transparency_day_ahead'
-        # TODO add country code to name
-        self._attr_name = 'ENTSO-E Transparency Day-ahead Rates'
-        # TODO set polling time to 1 day
-        self._attr_should_poll = False
+        country_code = self.entity_description.country_code
+        self._attr_unique_id = f'entsoe_transparency_day_ahead_{country_code}'
+        self._attr_name = f'ENTSOE Day-ahead Prices {country_code}'
+        self._attr_should_poll = True
+        self.last_successful_update: datetime = None
+        # TODO Can't we get this from somewhere?
+        self.entity_id = f'sensor.entsoe_day_ahead_prices_{country_code}'.lower()
 
     async def async_update(self) -> None:
-        logger.debug('EntsoeTransparencyDayAheadEntity.async_update')
+        """Called occasionally by HA to update data"""
+        logger.debug('EntsoeTransparencyDayAheadEntity.async_update called')
 
-        # TODO one StatisticData for each time block
-        # metadata: StatisticMetaData = StatisticMetaData()
-        # metadata['statistic_id'] = DOMAIN + ':day_ahead_rate'
-        # metadata['source'] = DOMAIN
-        # metadata['unit_of_measurement'] = 'EUR'
-        # metadata['name'] = 'Spot Price'
-        # metadata['has_mean'] = False
-        # metadata['has_sum'] = False
-
-        # now = datetime.now(timezone.utc)
-        # statistics: Iterable[StatisticData] = [
-        #     {'start': now.replace(minute=0, second=0,
-        #                           microsecond=0), 'state': '10'},
-        #     {'start': now.replace(hour=now.hour+1, minute=0,
-        #                           second=0, microsecond=0), 'state': '20'},
-        #     {'start': now.replace(hour=now.hour+2, minute=0,
-        #                           second=0, microsecond=0), 'state': '30'},
-        #     {'start': now.replace(hour=now.hour+3, minute=0,
-        #                           second=0, microsecond=0), 'state': '40'},
-        #     {'start': now.replace(hour=now.hour+4, minute=0,
-        #                           second=0, microsecond=0), 'state': '50'},
-        #     {'start': now.replace(hour=now.hour+5, minute=0,
-        #                           second=0, microsecond=0), 'state': '40'},
-        #     {'start': now.replace(hour=now.hour+6, minute=0,
-        #                           second=0, microsecond=0), 'state': '30'},
-        #     {'start': now.replace(hour=now.hour+7, minute=0,
-        #                           second=0, microsecond=0), 'state': '50'},
-        #     {'start': now.replace(hour=now.hour+8, minute=0,
-        #                           second=0, microsecond=0), 'state': '60'},
-        #     {'start': now.replace(hour=now.hour+9, minute=0,
-        #                           second=0, microsecond=0), 'state': '70'},
-        #     {'start': now.replace(hour=now.hour+10, minute=0,
-        #                           second=0, microsecond=0), 'state': '80'},
-        #     {'start': now.replace(hour=now.hour+11, minute=0,
-        #                           second=0, microsecond=0), 'state': '60'},
-        #     {'start': now.replace(hour=now.hour+12, minute=0,
-        #                           second=0, microsecond=0), 'state': '50'},
-        # ]
-
-        entity_id = "sensor.entso_e_transparency_day_ahead_rates"
+        # Decide if we should update or not
+        # last successful update was yesterday or earlier
+        if self.last_successful_update and \
+                self.last_successful_update.date() >= date.today():
+            logger.debug('Skipping update because its not time yet')
+            return
 
         # Make sure we can connect to ENTSOE Transparency API
         api_key = self.entity_description.api_key
@@ -177,29 +137,31 @@ class EntsoeTransparencyDayAheadEntity(SensorEntity):
         start = pd.Timestamp.now(tz='UTC').replace(
             hour=0, minute=0, second=0, microsecond=0)
         end = start + pd.Timedelta(value=1, unit='day')
+        logger.debug(f'Querying {country_code} rates between {start} and {end}')
 
+        # Update pricing info
         old_state = None
         async for t in yield_day_ahead_rates(hass=self.hass, api_key=api_key, country_code=country_code, start=start, end=end):
+            logger.debug(f'{self.entity_id} {t["timepoint"]} {t["price"]}')
             new_state = State(
-                entity_id=entity_id,
+                entity_id=self.entity_id,
                 state=t['price'],
                 last_changed=t['timepoint'],
-                last_updated=t['timepoint']
+                last_updated=t['timepoint'],
+                validate_entity_id=True
             )
             event_data = {
-                "entity_id": entity_id,
+                "entity_id": self.entity_id,
                 "old_state": old_state,
                 "new_state": new_state
             }
-            old_state = new_state
             self.hass.bus.async_fire(
-                "state_changed", event_data, time_fired=t['timepoint'])
+                EVENT_STATE_CHANGED,
+                event_data,
+                time_fired=t['timepoint']
+            )
+            old_state = new_state
 
-            # FIXME this call freezes forever
-            # self.hass.states.set(entity_id, new_state, force_update=True)
+        # TODO handle errors if we can't connect
 
-            # state = self.hass.states.get(self._attr_unique_id)
-            # logger.debug('Retrieved state object', state)
-            # inputState = state.state
-            # inputAttributesObject = state.attributes.copy()
-            # self.hass.states.set(self, inputState, inputAttributesObject)
+        self.last_successful_update = datetime.now()

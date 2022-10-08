@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 import logging
-from homeassistant.const import CONF_CURRENCY
-from homeassistant.core import HomeAssistant
 
 import voluptuous as vol
 import pandas as pd
 import xmltodict
 
+from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import (
     CONF_REGION,
-    CONF_API_KEY
+    CONF_API_KEY,
+    CONF_CURRENCY
 )
 
 from entsoe import EntsoeRawClient
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 DATA_SCHEMA = vol.Schema({
     vol.Required(CONF_API_KEY): str,
-    vol.Required(CONF_REGION): str
+    vol.Required(CONF_REGION): str,
+    vol.Required(CONF_CURRENCY): str
 })
 
 
@@ -36,29 +37,25 @@ class EntsoeTransparencyConfigFlow(ConfigFlow, domain=DOMAIN):
     async def validate_input(self, hass: HomeAssistant, user_input):
 
         # TODO validate that CONF_REGION and CONF_API_KEY are set
-
-        # TODO validate that we can connect to ENTSO-E Transparency api
         # Make sure we can connect to ENTSOE Transparency API
         api_key = user_input[CONF_API_KEY]
         country_code = user_input[CONF_REGION]
-        logger.debug(f'API key {api_key} country_code {country_code}')
+        currency = user_input[CONF_CURRENCY]
+        logger.debug(
+            f'API key {api_key} country_code {country_code} currency {currency}')
 
+        # Figure out start and end times for query
         start = pd.Timestamp.now(tz='UTC').replace(
             hour=0, minute=0, second=0, microsecond=0)
         end = start + pd.Timedelta(value=1, unit='day')
         logger.debug('Query time start: {start}, end: {end}')
 
+        # TODO validate that we can connect to ENTSO-E Transparency api
         client = EntsoeRawClient(api_key=api_key)
         xml_string = await hass.async_add_executor_job(
             lambda: client.query_day_ahead_prices(country_code, start, end))
         logger.debug(xml_string)
-
-        # for t in yield_day_ahead_rates(api_key=api_key, country_code=country_code, start=start, end=end):
-        #     # TODO something here
-        #     print(t)
-
-        # TODO add currency code from response
-        user_input[CONF_CURRENCY] = 'EUR'
+        # TODO error if we could not get data
 
         return (None, user_input)
 
